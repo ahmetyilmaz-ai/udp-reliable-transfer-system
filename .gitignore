@@ -1,0 +1,5 @@
+.idea/
+__pycache__/
+*.pyc
+.venv/
+netprobe_donem_projesi_foyu_guncel.pdf
