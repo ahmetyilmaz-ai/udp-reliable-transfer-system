@@ -1,0 +1,8 @@
+"Bilgisayar ağları dersi kapsamında geliştirilen NetProbe projesi, güvenilmez bir taşıma katmanı protokolü
+olan UDP üzerinde güvenilir bir veri transfer mekanizması oluşturmayı hedeflemektedir. Bu sistemde veri bütünlüğü
+SHA256 veya MD5 gibi özetleme algoritmalarıyla korunurken, paket kayıpları ise zaman aşımı (timeout) ve onay (ACK)
+mekanizmalarıyla telafi edilmektedir. İstemci tarafında parçalanan veriler, sunucu tarafında ardışık numara
+(Sequence Number) takibi yapılarak doğru sırada birleştirilmektedir. Projenin bonus aşamalarında uygulanan veri
+sıkıştırma teknikleri sayesinde bant genişliği kullanımı optimize edilmekte ve çoklu istemci desteği ile sunucunun
+ölçeklenebilirliği artırılmaktadır. Bu süreçte toplanan tüm performans verileri Pandas kütüphanesiyle analiz
+edilerek sistemin Throughput ve Goodput değerleri üzerinden akademik bir değerlendirme raporu sunulacaktır."
