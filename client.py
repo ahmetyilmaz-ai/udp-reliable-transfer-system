@@ -40,7 +40,7 @@ def log_event(event_type, seq_num, details=""):
 def wait_for_ack(client_socket, expected_seq):
     while True:
         ack_data, _ = client_socket.recvfrom(4096)
-        pkt_type, ack_seq, is_corrupt, payload = parse_packet(ack_data)
+        pkt_type, ack_seq, _total_packets, is_corrupt, payload = parse_packet(ack_data)
 
         if is_corrupt:
             log_event("CORRUPT_ACK", expected_seq)
@@ -94,18 +94,18 @@ def send_file(file_path):
     try:
         print(f"Transfer started: {file_name} ({file_size} bytes, {total_chunks} chunks)")
 
-        start_packet = create_packet(PKT_START, 0, encode_json(metadata))
+        start_packet = create_packet(PKT_START, 0, encode_json(metadata), total_chunks)
         send_with_retry(client_socket, start_packet, 0, "START")
 
         with open(file_path, "rb") as file:
             for seq_num in range(1, total_chunks + 1):
                 chunk = file.read(CHUNK_SIZE)
-                packet = create_packet(PKT_DATA, seq_num, chunk)
+                packet = create_packet(PKT_DATA, seq_num, chunk, total_chunks)
                 send_with_retry(client_socket, packet, seq_num, "DATA")
                 print(f"Chunk {seq_num}/{total_chunks} delivered")
 
         end_seq = total_chunks + 1
-        end_packet = create_packet(PKT_END, end_seq, encode_json({"sha256": file_checksum}))
+        end_packet = create_packet(PKT_END, end_seq, encode_json({"sha256": file_checksum}), total_chunks)
         send_with_retry(client_socket, end_packet, end_seq, "END", expected_ack="OK")
 
         elapsed = time.time() - start_time

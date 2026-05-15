@@ -52,7 +52,9 @@ def session_path(addr, file_name):
 
 
 def send_ack(server_socket, addr, seq_num, message="ACK"):
-    packet = create_packet(PKT_ACK, seq_num, message)
+    session = get_session(addr)
+    total_packets = session.total_chunks if session else 0
+    packet = create_packet(PKT_ACK, seq_num, message, total_packets)
     with send_lock:
         server_socket.sendto(packet, addr)
 
@@ -168,7 +170,7 @@ def handle_end(server_socket, addr, seq_num, payload):
 
 
 def process_packet(server_socket, data, addr):
-    pkt_type, seq_num, is_corrupt, payload = parse_packet(data)
+    pkt_type, seq_num, total_packets, is_corrupt, payload = parse_packet(data)
 
     if is_corrupt:
         print(f"Corrupt packet ignored from {addr}, seq={seq_num}")
