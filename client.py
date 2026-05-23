@@ -1,6 +1,7 @@
 import argparse
 import csv
 import os
+import random  # Yapay kayıp için eklendi
 import socket
 import time
 
@@ -15,16 +16,15 @@ from utils import (
     parse_packet,
 )
 
-
 DEST_IP = "127.0.0.1"
 DEST_PORT = 12345
 TIMEOUT = 2.0
 MAX_RETRIES = 5
 CHUNK_SIZE = 1024
 LOG_FILE = "transfer_logs.csv"
+LOSS_RATE = 0.2  # %20 yapay paket kayıp oranı eklendi
 
 event_logs = []
-
 
 def log_event(event_type, seq_num, details=""):
     event_logs.append(
@@ -35,7 +35,6 @@ def log_event(event_type, seq_num, details=""):
             "details": details,
         }
     )
-
 
 def wait_for_ack(client_socket, expected_seq):
     while True:
@@ -51,12 +50,19 @@ def wait_for_ack(client_socket, expected_seq):
 
         log_event("UNEXPECTED_ACK", expected_seq, f"type={pkt_type}, seq={ack_seq}")
 
-
 def send_with_retry(client_socket, packet, seq_num, description, expected_ack="ACK"):
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             log_event("SEND", seq_num, f"{description}, attempt={attempt}")
-            client_socket.sendto(packet, (DEST_IP, DEST_PORT))
+            
+            # --- YAPAY KAYIP MODÜLÜ BAŞLANGICI ---
+            if random.random() < LOSS_RATE:
+                log_event("SIMULATED_DROP", seq_num, f"attempt={attempt}")
+                # Paketi ağa göndermiyoruz, kod doğal yollarla socket.timeout'a düşecek
+            else:
+                client_socket.sendto(packet, (DEST_IP, DEST_PORT))
+            # --- YAPAY KAYIP MODÜLÜ BİTİŞİ ---
+
             ack_payload = wait_for_ack(client_socket, seq_num)
             log_event("ACK_RECEIVED", seq_num, ack_payload)
             if ack_payload != expected_ack:
@@ -68,7 +74,6 @@ def send_with_retry(client_socket, packet, seq_num, description, expected_ack="A
 
     log_event("TRANSFER_FAILED", seq_num, description)
     raise TimeoutError(f"{description} seq={seq_num} could not be acknowledged")
-
 
 def send_file(file_path):
     if not os.path.exists(file_path):
@@ -115,7 +120,6 @@ def send_file(file_path):
         client_socket.close()
         save_logs_to_csv()
 
-
 def save_logs_to_csv():
     if not event_logs:
         return
@@ -126,12 +130,10 @@ def save_logs_to_csv():
         writer.writerows(event_logs)
     print(f"Logs written to {LOG_FILE}")
 
-
 def parse_args():
     parser = argparse.ArgumentParser(description="Reliable UDP file transfer client")
     parser.add_argument("file", nargs="?", default="test_dosyasi.txt", help="file to send")
     return parser.parse_args()
-
 
 if __name__ == "__main__":
     args = parse_args()
