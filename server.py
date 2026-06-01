@@ -1,7 +1,9 @@
+import csv
 import hashlib
 import os
 import socket
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
@@ -21,6 +23,7 @@ LISTEN_PORT = 12345
 BUFFER_SIZE = 4096
 OUTPUT_DIR = "received_files"
 MAX_WORKERS = 8
+SERVER_LOG_FILE = "server_logs.csv"
 
 
 @dataclass
@@ -40,6 +43,39 @@ sessions = {}
 sessions_lock = threading.Lock()
 send_lock = threading.Lock()
 
+server_event_logs = []
+log_lock = threading.Lock()
+
+PKT_NAMES = {PKT_DATA: "DATA", PKT_ACK: "ACK", PKT_START: "START", PKT_END: "END"}
+
+
+def log_event(event_type, addr, seq_num, details=""):
+    host, port = addr
+    with log_lock:
+        server_event_logs.append(
+            {
+                "timestamp": time.time(),
+                "event": event_type,
+                "client": f"{host}:{port}",
+                "seq_num": seq_num,
+                "details": details,
+            }
+        )
+
+
+def save_server_logs():
+    with log_lock:
+        rows = list(server_event_logs)
+
+    if not rows:
+        return
+
+    with open(SERVER_LOG_FILE, "w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=rows[0].keys())
+        writer.writeheader()
+        writer.writerows(rows)
+    print(f"Server logs written to {SERVER_LOG_FILE}")
+
 
 def safe_file_name(file_name):
     return os.path.basename(file_name) or "received_file.bin"
@@ -57,6 +93,7 @@ def send_ack(server_socket, addr, seq_num, message="ACK"):
     packet = create_packet(PKT_ACK, seq_num, message, total_packets)
     with send_lock:
         server_socket.sendto(packet, addr)
+    log_event("ACK_SENT", addr, seq_num, message)
 
 
 def get_or_create_session(addr, metadata):
@@ -108,6 +145,7 @@ def handle_start(server_socket, addr, seq_num, payload):
     try:
         metadata = decode_json(payload)
         session = get_or_create_session(addr, metadata)
+        log_event("SESSION_CREATED", addr, seq_num, session.file_name)
         print(f"Transfer started from {addr}: {session.file_name}")
         send_ack(server_socket, addr, seq_num)
     except (KeyError, ValueError, OSError) as exc:
@@ -124,11 +162,13 @@ def handle_data(server_socket, addr, seq_num, payload):
 
     with session.lock:
         if seq_num in session.received_chunks:
+            log_event("DUPLICATE", addr, seq_num)
             print(f"Duplicate packet ignored from {addr}: seq={seq_num}")
             send_ack(server_socket, addr, seq_num)
             return
 
         if seq_num != session.expected_seq:
+            log_event("OUT_OF_ORDER", addr, seq_num, f"expected={session.expected_seq}")
             print(f"Out-of-order packet from {addr}: seq={seq_num}, expected={session.expected_seq}")
             send_ack(server_socket, addr, seq_num, "OUT_OF_ORDER")
             return
@@ -138,6 +178,7 @@ def handle_data(server_socket, addr, seq_num, payload):
 
         session.received_chunks.add(seq_num)
         session.expected_seq += 1
+        log_event("WRITE", addr, seq_num, f"{len(payload)} bytes")
         print(f"Chunk written from {addr}: seq={seq_num}")
         send_ack(server_socket, addr, seq_num)
 
@@ -161,10 +202,13 @@ def handle_end(server_socket, addr, seq_num, payload):
         is_complete = len(session.received_chunks) == session.total_chunks and verify_file(session)
         if is_complete:
             session.completed = True
+            log_event("VERIFIED", addr, seq_num, session.output_path)
             print(f"Transfer verified: {session.output_path}")
             send_ack(server_socket, addr, seq_num, "OK")
             remove_session(addr)
+            save_server_logs()
         else:
+            log_event("CHECKSUM_ERROR", addr, seq_num)
             print(f"Checksum or size mismatch for {addr}: {session.output_path}")
             send_ack(server_socket, addr, seq_num, "CHECKSUM_ERROR")
 
@@ -173,8 +217,11 @@ def process_packet(server_socket, data, addr):
     pkt_type, seq_num, total_packets, is_corrupt, payload = parse_packet(data)
 
     if is_corrupt:
+        log_event("CORRUPT_RECV", addr, seq_num)
         print(f"Corrupt packet ignored from {addr}, seq={seq_num}")
         return
+
+    log_event("RECV", addr, seq_num, PKT_NAMES.get(pkt_type, f"type={pkt_type}"))
 
     if pkt_type == PKT_START:
         handle_start(server_socket, addr, seq_num, payload)
@@ -191,10 +238,16 @@ def start_server():
     server_socket.bind((LISTEN_IP, LISTEN_PORT))
     print(f"Server listening on {LISTEN_IP}:{LISTEN_PORT}")
 
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        while True:
-            data, addr = server_socket.recvfrom(BUFFER_SIZE)
-            executor.submit(process_packet, server_socket, data, addr)
+    try:
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            while True:
+                data, addr = server_socket.recvfrom(BUFFER_SIZE)
+                executor.submit(process_packet, server_socket, data, addr)
+    except KeyboardInterrupt:
+        print("Server shutting down")
+    finally:
+        save_server_logs()
+        server_socket.close()
 
 
 if __name__ == "__main__":
