@@ -16,13 +16,14 @@ from utils import (
     parse_packet,
 )
 
+# Varsayılan değerler (Artık argümanlarla ezilecek)
 DEST_IP = "127.0.0.1"
 DEST_PORT = 12345
 TIMEOUT = 2.0
 MAX_RETRIES = 5
 CHUNK_SIZE = 1024
 LOG_FILE = "transfer_logs.csv"
-LOSS_RATE = 0.2  # %20 yapay paket kayıp oranı eklendi
+LOSS_RATE = 0.0  # Testler için varsayılan kayıp oranı 0.0 (kayıpsız) yapıldı
 
 event_logs = []
 
@@ -132,9 +133,24 @@ def save_logs_to_csv():
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Reliable UDP file transfer client")
-    parser.add_argument("file", nargs="?", default="test_dosyasi.txt", help="file to send")
+    parser.add_argument("file", nargs="?", default="test_dosyasi.txt", help="Gönderilecek dosya")
+    parser.add_argument("--ip", default="127.0.0.1", help="Sunucu IP adresi")
+    parser.add_argument("--port", type=int, default=12345, help="Sunucu portu")
+    parser.add_argument("--timeout", type=float, default=2.0, help="Zaman aşımı süresi (saniye)")
+    parser.add_argument("--retries", type=int, default=5, help="Maksimum yeniden gönderim sayısı")
+    parser.add_argument("--chunk-size", type=int, default=1024, help="Paket boyutu (byte)")
+    parser.add_argument("--loss-rate", type=float, default=0.0, help="Yapay kayıp oranı (0.0 ile 1.0 arası)")
     return parser.parse_args()
 
 if __name__ == "__main__":
     args = parse_args()
+    
+    # Argümanlardan gelen değerleri global değişkenlere atıyoruz
+    DEST_IP = args.ip
+    DEST_PORT = args.port
+    TIMEOUT = args.timeout
+    MAX_RETRIES = args.retries
+    CHUNK_SIZE = args.chunk_size
+    LOSS_RATE = args.loss_rate
+    
     send_file(args.file)
